@@ -5,20 +5,22 @@ from pyspark.sql.types import *
 import pyspark.sql.functions as psf
 
 
-# TODO Create a schema for incoming resources
+BROKER_URL = 'localhost:9092'
+TOPIC_NAME = "udacity.police.department.calls.v1"
+
 schema = StructType([
-    StructField('crime_id', IntegerType(), True), 
+    StructField('crime_id', StringType(), True), 
     StructField('original_crime_type_name', StringType(), True), 
-    StructField('report_date', TimestampType(), True), 
-    StructField('call_date', TimestampType(), True), 
-    StructField('offense_date', TimestampType(), True), 
+    StructField('report_date', StringType(), True), 
+    StructField('call_date', StringType(), True), 
+    StructField('offense_date', StringType(), True), 
     StructField('call_time', StringType(), True), 
-    StructField('call_date_time', TimestampType(), True), 
+    StructField('call_date_time', StringType(), True), 
     StructField('disposition', StringType(), True), 
     StructField('address', StringType(), True), 
     StructField('city', StringType(), True), 
     StructField('state', StringType(), True), 
-    StructField('agency_id', IntegerType(), True), 
+    StructField('agency_id', StringType(), True), 
     StructField('address_type', StringType(), True), 
     StructField('common_location', StringType(), True)
 ])
@@ -31,9 +33,10 @@ def run_spark_job(spark):
     df = spark \
         .readStream \
         .format("kafka") \
-        .option("kafka.bootstrap.servers", "localhost:9092") \
-        .option("subscribe", "udacity.police.department.calls") \
+        .option("kafka.bootstrap.servers", BROKER_URL) \
+        .option("subscribe", TOPIC_NAME) \
         .option("startingOffsets", "earliest") \
+        .option("maxOffsetPerTrigger", 200) \
         .load()
         
 
@@ -44,15 +47,20 @@ def run_spark_job(spark):
     # Take only value and convert it to String
     kafka_df = df.selectExpr(" cast (value as STRING)")
 
-    service_table = kafka_df\
-        .select(psf.from_json(psf.col('value'), schema).alias("DF"))\
-        .select("DF.*")
+    service_table = kafka_df.select(psf.from_json(psf.col('value'), schema).alias("DF")).select("DF.*")   
+    
+    
 
-    distinct_table = service_table.select("call_date_time", "original_crime_type_name", "disposition")
+    distinct_table = service_table.select(psf.to_timestamp(psf.col("call_date_time")).alias("call_date_time"),
+                                          psf.col("original_crime_type_name"),
+                                          psf.col("disposition"))
+    
+        
     agg_df = distinct_table \
             .withWatermark("call_date_time", "60 minutes") \
             .groupBy(psf.window(distinct_table.call_date_time, "10 minutes", "5 minutes"), psf.col("original_crime_type_name"))\
-            .count() 
+            .count() \
+            .orderBy(psf.desc("count"))
 
    
     query = agg_df \
@@ -73,7 +81,8 @@ def run_spark_job(spark):
 
     radio_code_df = radio_code_df.withColumnRenamed("disposition_code", "disposition")
 
-    join_query = agg_df.join(radio_code_df, "disposition") \
+    join_query = agg_df \
+        .join(radio_code_df, "disposition") \
         .writeStream \
         .format("console") \
         .queryName("join") \
@@ -93,6 +102,7 @@ if __name__ == "__main__":
         .getOrCreate()
 
     logger.info("Spark started")
+    spark.sparkContext.setLogLevel("ERROR")
 
     run_spark_job(spark)
 
