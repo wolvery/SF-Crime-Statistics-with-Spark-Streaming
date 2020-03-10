@@ -36,7 +36,7 @@ def run_spark_job(spark):
         .option("kafka.bootstrap.servers", BROKER_URL) \
         .option("subscribe", TOPIC_NAME) \
         .option("startingOffsets", "earliest") \
-        .option("maxOffsetPerTrigger", 200) \
+        .option("maxOffsetPerTrigger", 48000) \
         .load()
         
 
@@ -97,12 +97,12 @@ if __name__ == "__main__":
 
     spark = SparkSession \
         .builder \
-        .master("local") \
+        .master("local[16]") \
+        .config("spark.default.parallelism", 48) \
         .appName("KafkaSparkStructuredStreaming") \
         .getOrCreate()
 
     logger.info("Spark started")
-    spark.sparkContext.setLogLevel("ERROR")
 
     run_spark_job(spark)
 
