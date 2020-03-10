@@ -12,11 +12,14 @@ class ProducerServer(KafkaProducer):
 
     def generate_data(self):
         with open(self.input_file) as f:
-            for line in f:
+            data = json.load(f)
+            for line in data:                
                 message = self.dict_to_binary(line)
                 self.send(self.topic, message)
                 time.sleep(1)
 
     def dict_to_binary(self, json_dict):
-        return json.dumps(json_dict, indent=2).encode('utf-8')
+        json_message = json.dumps(json_dict, indent=4).replace('\r', '').replace('\n', '')        
+        print(json_message)
+        return json_message.encode('utf-8')
         
